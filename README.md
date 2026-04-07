@@ -1,18 +1,18 @@
-# Winter Core
+# WinterCore MC
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 ![Node Version](https://img.shields.io/badge/node-%3E%3D22.13.0-brightgreen)
 
-**Winter Core** is a powerful **Node.js/TypeScript** library designed to simplify Minecraft Java Edition launcher development. It provides a complete solution for game launching, authentication, mod loading, and asset management without the complexity of handling manifests, libraries, or Java runtimes manually.
+**WinterCore MC** (wintercore-mc) is a powerful **Node.js/TypeScript** library designed to simplify Minecraft Java Edition launcher development. It provides a complete solution for game launching, authentication, mod loading, and asset management without the complexity of handling manifests, libraries, or Java runtimes manually.
 
-## 🎯 What is Winter Core?
+## 🎯 What is WinterCore MC?
 
-Winter Core eliminates the tedious work of building Minecraft launchers from scratch. Whether you're creating a custom launcher for a modpack, building a server management tool, or developing a gaming platform, Winter Core handles all the low-level Minecraft launching logic so you can focus on your user experience.
+WinterCore MC eliminates the tedious work of building Minecraft launchers from scratch. Whether you're creating a custom launcher for a modpack, building a server management tool, or developing a gaming platform, WinterCore MC handles all the low-level Minecraft launching logic so you can focus on your user experience.
 
 ## ✨ Key Features
 
 - 🚀 **One-line game launching** - Launch any Minecraft version with minimal configuration
-- 🔐 **Multi-platform authentication** - Microsoft, Mojang, and custom AZauth server support
+- 🔐 **Authentication ready** - Accepts any auth object (Microsoft, Mojang, or custom servers)
 - 🔧 **Universal mod loader support** - Forge, NeoForge, Fabric, Quilt, and Legacy Fabric
 - 📦 **Intelligent asset management** - Automatic download, verification, and caching
 - ⚡ **High-performance downloads** - Parallel downloading with progress tracking and retry logic
@@ -26,7 +26,7 @@ Winter Core eliminates the tedious work of building Minecraft launchers from scr
 ## 📦 Installation
 
 ```bash
-npm install winter-core
+npm install wintercore-mc
 ```
 
 ## 🚀 Quick Start
@@ -34,13 +34,14 @@ npm install winter-core
 ### Basic Launch Example
 
 ```typescript
-import { Launch, Microsoft, Mojang, AZauth } from 'winter-core';
+import { Launch } from 'wintercore-mc';
 
 const launcher = new Launch();
 
-// Microsoft Authentication
-const microsoft = new Microsoft('your-client-id');
-const auth = await microsoft.getAuth();
+// You need to provide an authenticator object with these fields:
+// { access_token, client_token, uuid, name, user_properties, meta: { type } }
+// You can use any Microsoft/Mojang/AZauth library of your choice
+const auth = await YourAuthProvider.login();
 
 // Launch Minecraft
 launcher.Launch({
@@ -200,167 +201,30 @@ launcher.forceGarbageCollection();
 
 ---
 
-### Microsoft Authentication
+### Authenticator Interface
 
-Handles Microsoft OAuth2 authentication with Xbox Live integration.
-
-```typescript
-import { Microsoft } from 'winter-core';
-
-const microsoft = new Microsoft('your-client-id'); // Optional, defaults to Minecraft launcher ID
-```
-
-#### Methods
-
-##### `getAuth(type?, url?)`
-
-Initiates authentication flow. Auto-detects environment (Electron, NW.js, or Terminal).
+WinterCore MC doesn't include authentication built-ins. Instead, it accepts any authenticator object that follows this interface:
 
 ```typescript
-const auth = await microsoft.getAuth();
-// Returns AuthResponse | AuthError | false (if cancelled)
-```
-
-##### `refresh(account)`
-
-Refreshes an existing authentication token.
-
-```typescript
-const refreshed = await microsoft.refresh(existingAuth);
-```
-
-##### `getProfile(mcLogin)`
-
-Fetches Minecraft profile including skins and capes.
-
-```typescript
-const profile = await microsoft.getProfile({ access_token: 'token' });
-// Returns { id, name, skins[], capes[] }
-```
-
-#### AuthResponse Structure
-
-```typescript
-{
-    access_token: string,
-    client_token: string,
-    uuid: string,
-    name: string,
-    refresh_token: string,
-    user_properties: string,
+interface Authenticator {
+    access_token: string;     // Minecraft access token
+    client_token: string;     // Client identifier
+    uuid: string;             // Player UUID
+    name: string;             // Player username
+    user_properties: string;  // Usually '{}'
     meta: {
-        type: 'Xbox',
-        access_token_expires_in: number,
-        demo: boolean
-    },
-    xboxAccount: {
-        xuid: string,
-        gamertag: string,
-        ageGroup: string
-    },
-    profile: {
-        skins?: Array<{ id, state, url, variant, alias, base64 }>,
-        capes?: Array<{ id, state, url, variant, alias, base64 }>
-    }
+        type: string;         // 'Xbox', 'Mojang', or custom
+        online: boolean;      // Whether account is premium
+    };
+    xboxAccount?: {
+        xuid: string;
+        gamertag: string;
+        ageGroup: string;
+    };
 }
 ```
 
----
-
-### Mojang Authentication
-
-Handles Mojang authentication (legacy accounts and offline mode).
-
-```typescript
-import * as Mojang from 'winter-core';
-```
-
-#### Methods
-
-##### `login(username, password?)`
-
-Logs in with Mojang credentials. If no password is provided, creates an offline session.
-
-```typescript
-// Offline mode
-const offlineAuth = await Mojang.login('PlayerName');
-
-// Online mode
-const onlineAuth = await Mojang.login('email@example.com', 'password');
-```
-
-##### `refresh(account)`
-
-Refreshes a Mojang authentication token.
-
-```typescript
-const refreshed = await Mojang.refresh(auth);
-```
-
-##### `validate(account)`
-
-Validates if an access token is still valid.
-
-```typescript
-const isValid = await Mojang.validate(auth);
-```
-
-##### `signout(account)`
-
-Invalidates an access token.
-
-```typescript
-const success = await Mojang.signout(auth);
-```
-
-##### `ChangeAuthApi(url)`
-
-Changes the authentication API URL for custom auth servers.
-
-```typescript
-Mojang.ChangeAuthApi('https://your-auth-server.com');
-```
-
----
-
-### AZauth
-
-Authentication for custom launcher backends using the AZauth protocol.
-
-```typescript
-import { AZauth } from 'winter-core';
-
-const azauth = new AZauth('https://your-server.com');
-```
-
-#### Methods
-
-##### `login(username, password, A2F?)`
-
-Authenticates with username/email and password. Supports 2FA.
-
-```typescript
-const user = await azauth.login('user@example.com', 'password');
-
-// With 2FA
-const user2FA = await azauth.login('user@example.com', 'password', '123456');
-```
-
-##### `verify(user)`
-
-Verifies an existing session.
-
-```typescript
-const verified = await azauth.verify(user);
-```
-
-##### `signout(user)`
-
-Logs out and invalidates a session.
-
-```typescript
-const success = await azauth.signout(user);
-```
+You can use any authentication library or implement your own. The launcher only reads these fields to pass to the game process.
 
 ---
 
@@ -369,7 +233,7 @@ const success = await azauth.signout(user);
 Query Minecraft server status information.
 
 ```typescript
-import { Status } from 'winter-core';
+import { Status } from 'wintercore-mc';
 
 const server = new Status('play.hypixel.net', 25565);
 
@@ -395,7 +259,7 @@ try {
 Advanced file downloader with progress tracking and retry logic.
 
 ```typescript
-import { Downloader } from 'winter-core';
+import { Downloader } from 'wintercore-mc';
 
 const downloader = new Downloader();
 
@@ -426,7 +290,7 @@ downloader.on('estimated', (time) => {
 Memory pooling utilities for performance optimization.
 
 ```typescript
-import { MemoryManager, StringBuilder, BufferedFileReader } from 'winter-core';
+import { MemoryManager, StringBuilder, BufferedFileReader } from 'wintercore-mc';
 
 const memoryManager = MemoryManager.getInstance();
 
@@ -453,7 +317,7 @@ const stats = memoryManager.getMemoryStats();
 Monitors launch and download performance metrics.
 
 ```typescript
-import PerformanceMonitor from 'winter-core';
+import PerformanceMonitor from 'wintercore-mc';
 
 const monitor = PerformanceMonitor.getInstance();
 monitor.startLaunchMonitoring();
@@ -591,10 +455,6 @@ for (const server of servers) {
 src/
 ├── Index.ts              # Main exports
 ├── Launch.ts             # Core launcher logic
-├── Authenticator/
-│   ├── Microsoft.ts      # Microsoft/Xbox Live auth
-│   ├── Mojang.ts         # Mojang/Offline auth
-│   └── AZauth.ts         # Custom server auth
 ├── Minecraft/
 │   ├── Minecraft-Json.ts       # Version manifests
 │   ├── Minecraft-Libraries.ts  # Library management
@@ -644,6 +504,6 @@ MIT License
 
 ## 🔗 Links
 
-- [GitHub Repository](https://github.com/cosmic-fi/winter-core)
-- [Report Issues](https://github.com/cosmic-fi/winter-core/issues)
-- [npm Package](https://www.npmjs.com/package/winter-core)
+- [GitHub Repository](https://github.com/cosmic-fi/wintercore-mc)
+- [Report Issues](https://github.com/cosmic-fi/wintercore-mc/issues)
+- [npm Package](https://www.npmjs.com/package/wintercore-mc)

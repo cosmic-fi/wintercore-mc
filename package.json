@@ -1,5 +1,5 @@
 {
-    "name": "winter-core",
+    "name": "wintercore-mc",
     "version": "1.0.0",
     "types": "./build/Index.d.ts",
     "exports": {
