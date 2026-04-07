@@ -1,0 +1,7 @@
+{
+    "files.exclude": {
+        "**/build": false,
+        "**/node_modules": false,
+        "**/package-lock.json": false
+    }
+}
