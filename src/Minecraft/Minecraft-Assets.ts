@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { fetchJSON } from '../utils/Index.js';
 
 /**
  * Represents the general structure of the options passed to MinecraftAssets.
@@ -62,8 +63,7 @@ export default class MinecraftAssets {
 		// Fetch the asset index JSON from the remote URL
 		let data;
 		try {
-			const response = await fetch(this.assetIndex.url);
-			data = await response.json();
+		data = await fetchJSON(this.assetIndex.url);
 		} catch (err: any) {
 			throw new Error(`Failed to fetch asset index: ${err.message}`);
 		}

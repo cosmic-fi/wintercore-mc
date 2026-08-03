@@ -13,7 +13,8 @@ import {
 	getFileHash,
 	mirrors,
 	getFileFromArchive,
-	skipLibrary
+	skipLibrary,
+	fetchJSON
 } from '../../../utils/Index.js';
 
 import Downloader from '../../../utils/Downloader.js';
@@ -118,9 +119,7 @@ export default class ForgeMC extends EventEmitter {
 	 */
 	public async downloadInstaller(Loader: any): Promise<DownloadInstallerResult> {
 		// Fetch metadata for the given Forge version
-		let metaDataList: string[] = await fetch(Loader.metaData)
-			.then(res => res.json())
-			.then(json => json[this.options.loader.version]);
+		let metaDataList: string[] = (await fetchJSON(Loader.metaData))[this.options.loader.version];
 
 		if (!metaDataList) {
 			return { error: `Forge ${this.options.loader.version} not supported` };
@@ -131,12 +130,12 @@ export default class ForgeMC extends EventEmitter {
 
 		// Handle "latest" or "recommended" builds by checking promotions
 		if (this.options.loader.build === 'latest') {
-			let promotions = await fetch(Loader.promotions).then(res => res.json());
+			let promotions = await fetchJSON(Loader.promotions);
 			const promoKey = `${this.options.loader.version}-latest`;
 			const promoBuild = promotions.promos[promoKey];
 			build = metaDataList.find(b => b.includes(promoBuild));
 		} else if (this.options.loader.build === 'recommended') {
-			let promotions = await fetch(Loader.promotions).then(res => res.json());
+			let promotions = await fetchJSON(Loader.promotions);
 			let promoKey = `${this.options.loader.version}-recommended`;
 			let promoBuild = promotions.promos[promoKey] || promotions.promos[`${this.options.loader.version}-latest`];
 			build = metaDataList.find(b => b.includes(promoBuild));
@@ -153,7 +152,7 @@ export default class ForgeMC extends EventEmitter {
 		}
 
 		// Fetch info about the chosen build from the meta URL
-		const meta = await fetch(Loader.meta.replace(/\${build}/g, chosenBuild)).then(res => res.json());
+		const meta = await fetchJSON(Loader.meta.replace(/\${build}/g, chosenBuild));
 
 		// Determine which classifier to use (installer, client, or universal)
 		const hasInstaller = meta.classifiers.installer;

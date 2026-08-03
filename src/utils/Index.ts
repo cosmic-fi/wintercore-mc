@@ -1,7 +1,79 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import { Readable } from 'node:stream';
+import http from 'http';
+import https from 'https';
+import { URL } from 'url';
 import Unzipper from './unzipper.js';
+
+// Global HTTP/HTTPS agents with keep-alive for connection pooling.
+// Used by fetchJSON() to avoid undici's fetch connection pool limits.
+const httpAgent = new http.Agent({
+    keepAlive: true,
+    keepAliveMsecs: 1000,
+    maxSockets: 50,
+    maxFreeSockets: 20,
+    timeout: 60000,
+});
+
+const httpsAgent = new https.Agent({
+    keepAlive: true,
+    keepAliveMsecs: 1000,
+    maxSockets: 50,
+    maxFreeSockets: 20,
+    timeout: 60000,
+});
+
+/**
+ * Fetches JSON from a URL using native Node.js http/https modules
+ * instead of undici's fetch. This avoids connection pool exhaustion
+ * (undici defaults to 10 sockets per origin) and "fetch failed" errors.
+ *
+ * @param url - The URL to fetch JSON from
+ * @param timeout - Request timeout in milliseconds (default: 30000)
+ * @returns Parsed JSON response
+ */
+async function fetchJSON(url: string, timeout: number = 30000): Promise<any> {
+    return new Promise((resolve, reject) => {
+        const parsedUrl = new URL(url);
+        const isHttps = parsedUrl.protocol === 'https:';
+        const agent = isHttps ? httpsAgent : httpAgent;
+        const lib = isHttps ? https : http;
+
+        const req = lib.get(url, { agent }, (res) => {
+            // Handle redirects (3xx)
+            if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                const redirectUrl = new URL(res.headers.location, url).href;
+                res.resume();
+                fetchJSON(redirectUrl, timeout).then(resolve).catch(reject);
+                return;
+            }
+
+            if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+                res.resume();
+                reject(new Error(`HTTP ${res.statusCode}: Failed to fetch ${url}`));
+                return;
+            }
+
+            let data = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk: string) => { data += chunk; });
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch (err) {
+                    reject(new Error(`Failed to parse JSON from ${url}: ${err}`));
+                }
+            });
+        });
+
+        req.on('error', reject);
+        req.setTimeout(timeout, () => {
+            req.destroy(new Error(`Request timeout after ${timeout}ms`));
+        });
+    });
+}
+
 
 // This interface defines the structure of a Minecraft library rule.
 interface LibraryRule {
@@ -279,7 +351,8 @@ export {
 	mirrors,
 	getFileFromArchive,
 	skipLibrary,
-	fromAnyReadable
+	fromAnyReadable,
+	fetchJSON
 };
 
 // Export memory management

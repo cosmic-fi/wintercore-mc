@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { EventEmitter } from 'events';
 
-import { getPathLibraries } from '../../../utils/Index.js';
+import { getPathLibraries, fetchJSON } from '../../../utils/Index.js';
 import Downloader from '../../../utils/Downloader.js';
 
 /**
@@ -84,8 +84,7 @@ export default class FabricMC extends EventEmitter {
 		let selectedBuild: { version: string } | undefined;
 
 		// Fetch overall metadata
-		const metaResponse = await fetch(Loader.metaData);
-		const metaData = await metaResponse.json();
+		const metaData = await fetchJSON(Loader.metaData);
 
 		// Check if the requested Minecraft version is supported
 		const versionExists = metaData.game.find((ver: any) => ver.version === this.options.loader.version);
@@ -117,8 +116,7 @@ export default class FabricMC extends EventEmitter {
 
 		// Fetch and parse the JSON
 		try {
-			const response = await fetch(url);
-			const fabricJson: FabricJSON = await response.json();
+			const fabricJson: FabricJSON = await fetchJSON(url);
 			return fabricJson;
 		} catch (err: any) {
 			return { error: err.message || 'Failed to fetch or parse Fabric loader JSON' };

@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { EventEmitter } from 'events';
 
-import { getPathLibraries } from '../../../utils/Index.js';
+import { getPathLibraries, fetchJSON } from '../../../utils/Index.js';
 import Downloader from '../../../utils/Downloader.js';
 
 /**
@@ -86,8 +86,7 @@ export default class Quilt extends EventEmitter {
 		let selectedBuild: any;
 
 		// Fetch the metadata
-		const metaResponse = await fetch(Loader.metaData);
-		const metaData = await metaResponse.json();
+		const metaData = await fetchJSON(Loader.metaData);
 
 		// Check if the requested Minecraft version is supported
 		const mcVersionExists = metaData.game.find((ver: any) => ver.version === this.options.loader.version);
@@ -124,8 +123,7 @@ export default class Quilt extends EventEmitter {
 
 		// Fetch the JSON profile
 		try {
-			const response = await fetch(url);
-			const quiltJson: QuiltJSON = await response.json();
+			const quiltJson: QuiltJSON = await fetchJSON(url);
 			return quiltJson;
 		} catch (err: any) {
 			return { error: err.message || 'Failed to fetch or parse Quilt loader JSON' };

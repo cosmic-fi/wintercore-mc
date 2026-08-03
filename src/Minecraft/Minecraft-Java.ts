@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import EventEmitter from 'events';
 
-import { getFileFromArchive } from '../utils/Index.js';
+import { getFileFromArchive, fetchJSON } from '../utils/Index.js';
 import Downloader from '../utils/Downloader.js';
 
 /**
@@ -104,7 +104,7 @@ export default class JavaDownloader extends EventEmitter {
 
 		// Fetch Mojang's Java runtime metadata
 		const url = 'https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json';
-		const javaVersionsJson = await fetch(url).then(res => res.json());
+		const javaVersionsJson = await fetchJSON(url);
 
 		const versionName = javaVersionsJson[archOs]?.[javaVersionName]?.[0]?.version?.name;
 		if (!versionName) {
@@ -113,7 +113,7 @@ export default class JavaDownloader extends EventEmitter {
 
 		// Fetch the runtime manifest which lists individual files
 		const manifestUrl = javaVersionsJson[archOs][javaVersionName][0]?.manifest?.url;
-		const manifest = await fetch(manifestUrl).then(res => res.json());
+		const manifest = await fetchJSON(manifestUrl);
 		const manifestEntries: Array<[string, any]> = Object.entries(manifest.files);
 
 		// Identify the Java executable in the manifest
@@ -171,7 +171,7 @@ export default class JavaDownloader extends EventEmitter {
 			java_package_type: this.options.java.type
 		});
 		const javaVersionURL = `https://api.azul.com/metadata/v1/zulu/packages/?${queryParams.toString()}`;
-		let javaVersions = await fetch(javaVersionURL).then(res => res.json());
+		let javaVersions = await fetchJSON(javaVersionURL);
 		if (!Array.isArray(javaVersions) || javaVersions.length === 0) {
 			return { files: [], path: '', error: true, message: 'No Java versions found for the specified parameters.' };
 		}
