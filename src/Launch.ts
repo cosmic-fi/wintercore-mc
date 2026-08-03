@@ -221,6 +221,12 @@ export default class Launch extends EventEmitter {
 	private memoryManager: MemoryManager;
 	private stringBuilderPool: StringBuilder[] = [];
 	private performanceMonitor: PerformanceMonitor;
+	// Progress throttling at the Launch level - prevents re-emitting
+	// progress events on every data chunk from the downloader.
+	private lastProgressEmit = 0;
+	private lastProgressPercent = -1;
+	private readonly PROGRESS_THROTTLE_MS = 100;
+	private readonly PROGRESS_THROTTLE_PERCENT = 1;
 
 	constructor() {
 		super();
@@ -469,11 +475,22 @@ export default class Launch extends EventEmitter {
 			// Start download performance monitoring
 			this.performanceMonitor.startDownloadMonitoring();
 			
-			this.downloader.on("progress", (DL: any, totDL: any, element: any) => {
+		this.downloader.on("progress", (DL: any, totDL: any, element: any) => {
+			// Throttle progress events at the Launch level too.
+			// Even though the Downloader now throttles, the Java downloader
+			// and loader installer also emit progress, so we throttle here
+			// as a central choke point.
+			const now = Date.now();
+			const percent = totDL > 0 ? (DL / totDL) * 100 : 0;
+			if (now - this.lastProgressEmit >= this.PROGRESS_THROTTLE_MS || 
+			    percent - this.lastProgressPercent >= this.PROGRESS_THROTTLE_PERCENT) {
+				this.lastProgressEmit = now;
+				this.lastProgressPercent = percent;
 				this.emit("progress", DL, totDL, element);
-				// Record download progress for performance monitoring
-				this.performanceMonitor.recordDownloadProgress(DL, 100); // Use a fixed interval for now
-			});
+			}
+			// Record download progress for performance monitoring
+			this.performanceMonitor.recordDownloadProgress(DL, 100);
+		});
 			
 			this.downloader.on("speed", (speed: any) => {
 				this.emit("speed", speed);

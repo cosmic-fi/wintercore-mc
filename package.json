@@ -8,7 +8,7 @@
             "require": "./build/Index.js"
         }
     },
-    "description": "A powerful **Node.js/TypeScript** library designed to simplify Minecraft Java Edition launcher development.",
+    "description": "A Node.js/TypeScript library for Minecraft Java Edition launcher development.",
     "scripts": {
         "dev": "rimraf ./build && tsc -w",
         "build": "rimraf ./build && tsc",
@@ -25,6 +25,8 @@
     ],
     "keywords": [
         "Minecraft",
+        "wintercore-mc",
+        "winter-launcher",
         "Launcher",
         "Node-Minecraft",
         "Game",
@@ -55,11 +57,11 @@
         "typescript": "^5.7.2"
     },
     "bugs": {
-        "url": "https://github.com/cosmic-fi/winter-core/issues"
+        "url": "https://github.com/cosmic-fi/wintercore-mc/issues"
     },
-    "homepage": "https://github.com/cosmic-fi/winter-core#readme",
+    "homepage": "https://github.com/cosmic-fi/wintercore-mc#readme",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/cosmic-fi/winter-core.git"
+        "url": "git+https://github.com/cosmic-fi/wintercore-mc.git"
     }
 }

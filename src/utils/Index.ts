@@ -184,7 +184,7 @@ async function getFileFromArchive(jar: string, file: string | null = null, prefi
 			}
 
 			// If a prefix is given, collect all entry names under that prefix
-			if (!entry.isDirectory && entry.entryName.includes(prefix)) {
+			if (!entry.isDirectory && prefix && entry.entryName.includes(prefix)) {
 				result.push(entry.entryName);
 			}
 		}
@@ -248,14 +248,14 @@ function skipLibrary(lib: MinecraftLibrary): boolean {
 }
 
 function fromAnyReadable(webStream: ReadableStream<Uint8Array>): import('node:stream').Readable {
-	let NodeReadableStreamCtor: typeof ReadableStream | undefined;
-	if (!NodeReadableStreamCtor && typeof globalThis?.navigator === 'undefined') {
-		import('node:stream/web').then((mod) => { NodeReadableStreamCtor = mod.ReadableStream as any; });
-	}
-	if (NodeReadableStreamCtor && webStream instanceof NodeReadableStreamCtor && typeof (Readable as any).fromWeb === 'function') {
-		return Readable.fromWeb(webStream as any);
+	// Use Readable.fromWeb() directly - it's available in Node 17+ and
+	// is much more efficient than manual pumping. The manual pump approach
+	// creates a new Promise per chunk and doesn't handle backpressure properly.
+	if (typeof (Readable as any).fromWeb === 'function') {
+		return (Readable as any).fromWeb(webStream as any);
 	}
 
+	// Fallback for older Node versions
 	const nodeStream = new Readable({ read() { } });
 	const reader = webStream.getReader();
 

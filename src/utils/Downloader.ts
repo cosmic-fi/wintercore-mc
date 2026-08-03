@@ -1,6 +1,10 @@
 import fs from 'fs';
 import { EventEmitter } from 'events';
-import { fromAnyReadable } from './Index.js';
+import { pipeline } from 'stream/promises';
+import { Transform, Readable } from 'stream';
+import http from 'http';
+import https from 'https';
+import { URL } from 'url';
 import { 
     DownloadError, 
     TimeoutError, 
@@ -11,37 +15,135 @@ import {
     wrapError
 } from './Errors.js';
 
+// Global HTTP/HTTPS agents with keep-alive for connection pooling.
+// This is critical for performance: without keep-alive, every request
+// creates a new TCP+TLS connection, which with 20 concurrent downloads
+// exhausts resources and causes frequent timeouts.
+// We use native http/https modules (not undici fetch) to get full
+// control over connection pooling and avoid undici's connection limits.
+const httpAgent = new http.Agent({
+    keepAlive: true,
+    keepAliveMsecs: 1000,
+    maxSockets: 50,
+    maxFreeSockets: 20,
+    timeout: 60000,
+});
+
+const httpsAgent = new https.Agent({
+    keepAlive: true,
+    keepAliveMsecs: 1000,
+    maxSockets: 50,
+    maxFreeSockets: 20,
+    timeout: 60000,
+});
+
 /**
- * Helper function to perform fetch with retries
+ * Interface for the response from httpRequest.
  */
-async function fetchWithRetry(url: string, init?: RequestInit, retries = 3, delay = 1000): Promise<Response> {
-	let lastError;
-	for (let i = 0; i < retries; i++) {
-		try {
-			const response = await fetch(url, init);
-			// If successful or client error (4xx), return response
-			if (response.ok || (response.status >= 400 && response.status < 500)) {
-				return response;
-			}
-			// If server error (5xx), throw to trigger retry
-			if (response.status >= 500) {
-				throw new Error(`Server returned ${response.status}`);
-			}
-			return response;
-		} catch (error: any) {
-			lastError = error;
-			// Don't retry if aborted
-			if (error.name === 'AbortError') {
-				throw error;
-			}
-			// Log retry attempt
-			console.log(`[Downloader] Fetch attempt ${i + 1} failed for ${url}: ${error.message}. Retrying...`);
-			if (i < retries - 1) {
-				await new Promise(resolve => setTimeout(resolve, delay * (i + 1))); // Exponential backoff
-			}
-		}
-	}
-	throw lastError;
+interface HttpResponse {
+    statusCode: number;
+    headers: http.IncomingHttpHeaders;
+    body: Readable;
+}
+
+/**
+ * Performs an HTTP/HTTPS GET request using native Node.js modules
+ * with keep-alive connection pooling. Returns a Node Readable stream
+ * directly (no web stream conversion needed).
+ *
+ * @param url - The URL to fetch
+ * @param options - Request options
+ * @returns HttpResponse with status code, headers, and body stream
+ */
+function httpRequest(
+    url: string,
+    options: { signal?: AbortSignal; timeout?: number } = {}
+): Promise<HttpResponse> {
+    return new Promise((resolve, reject) => {
+        const parsedUrl = new URL(url);
+        const isHttps = parsedUrl.protocol === 'https:';
+        const agent = isHttps ? httpsAgent : httpAgent;
+        const lib = isHttps ? https : http;
+        const timeout = options.timeout || 30000;
+
+        const req = lib.get(url, { agent }, (res) => {
+            // Handle redirects (3xx)
+            if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                const redirectUrl = new URL(res.headers.location, url).href;
+                res.resume(); // Consume the response to free up the socket
+                httpRequest(redirectUrl, options).then(resolve).catch(reject);
+                return;
+            }
+
+            resolve({
+                statusCode: res.statusCode || 0,
+                headers: res.headers,
+                body: res as unknown as Readable,
+            });
+        });
+
+        req.on('error', (err: any) => {
+            if (options.signal?.aborted) {
+                reject(new Error('Request aborted'));
+            } else {
+                reject(err);
+            }
+        });
+
+        req.setTimeout(timeout, () => {
+            req.destroy(new Error(`Request timeout after ${timeout}ms`));
+        });
+
+        if (options.signal) {
+            options.signal.addEventListener('abort', () => {
+                req.destroy(new Error('Request aborted'));
+            });
+        }
+    });
+}
+
+/**
+ * Helper function to perform an HTTP request with retries.
+ * Uses native http/https modules for connection pooling.
+ */
+async function fetchWithRetry(
+    url: string,
+    retries = 3,
+    delay = 1000,
+    timeout = 30000,
+    abortSignal?: AbortSignal
+): Promise<HttpResponse> {
+    let lastError;
+    for (let i = 0; i < retries; i++) {
+        try {
+            const response = await httpRequest(url, { signal: abortSignal, timeout });
+            // If successful or client error (4xx), return response
+            if (response.statusCode >= 200 && response.statusCode < 400) {
+                return response;
+            }
+            if (response.statusCode >= 400 && response.statusCode < 500) {
+                return response; // Client errors are not retried
+            }
+            // If server error (5xx), throw to trigger retry
+            if (response.statusCode >= 500) {
+                response.body.resume(); // Consume the body to free the socket
+                throw new Error(`Server returned ${response.statusCode}`);
+            }
+            return response;
+        } catch (error: any) {
+            lastError = error;
+            // Don't retry if aborted
+            if (error.message === 'Request aborted' || error.name === 'AbortError') {
+                throw error;
+            }
+            // Log retry attempt
+            console.log(`[Downloader] Fetch attempt ${i + 1} failed for ${url}: ${error.message}. Retrying...`);
+            if (i < retries - 1) {
+                await new Promise(resolve => setTimeout(resolve, delay * (i + 1))); // Exponential backoff
+            }
+        }
+    }
+    throw lastError;
 }
 
 /**
@@ -65,6 +167,47 @@ export interface DownloadOptions {
  * emitting events for progress, speed, estimated time, and errors.
  */
 export default class Downloader extends EventEmitter {
+	// Progress throttling state - prevents emitting progress on every
+	// data chunk, which floods IPC channels and starves event loops.
+	private lastProgressEmit = 0;
+	private lastProgressPercent = -1;
+	private readonly PROGRESS_THROTTLE_MS = 100; // Max 10 progress events per second
+	private readonly PROGRESS_THROTTLE_PERCENT = 1; // Or when percentage changes by >= 1%
+
+	/**
+	 * Creates a Transform stream that counts bytes and throttles progress events.
+	 * This is used in pipeline() for reliable backpressure handling.
+	 */
+	private createProgressTransform(
+		onProgress: (downloaded: number, totalSize: number) => void,
+		totalSize: number
+	): Transform {
+		let downloaded = 0;
+		// Capture throttle state in closure (not on `this` of Transform)
+		let lastEmit = 0;
+		let lastPercent = -1;
+		const throttleMs = this.PROGRESS_THROTTLE_MS;
+		const throttlePercent = this.PROGRESS_THROTTLE_PERCENT;
+		
+		return new Transform({
+			transform(chunk: Buffer, _encoding: string, callback: (error?: Error | null, data?: any) => void) {
+				downloaded += chunk.length;
+				
+				// Throttle progress events
+				const now = Date.now();
+				const percent = totalSize > 0 ? (downloaded / totalSize) * 100 : 0;
+				if (now - lastEmit >= throttleMs || 
+				    percent - lastPercent >= throttlePercent) {
+					lastEmit = now;
+					lastPercent = percent;
+					onProgress(downloaded, totalSize);
+				}
+				
+				callback(null, chunk);
+			}
+		});
+	}
+
 	/**
 	 * Downloads a single file from the given URL to the specified local path.
 	 * Emits "progress" events with the number of bytes downloaded and total size.
@@ -90,17 +233,18 @@ export default class Downloader extends EventEmitter {
 			throw fsError;
 		}
 
-		const writer = fs.createWriteStream(`${dirPath}/${fileName}`);
-		let response: Response;
+		const filePath = `${dirPath}/${fileName}`;
+		const writer = fs.createWriteStream(filePath);
+		let response: HttpResponse;
 
 		try {
-			response = await fetchWithRetry(url);
+			response = await fetchWithRetry(url, 3, 1000, 30000);
 			
-			if (!response.ok) {
+			if (response.statusCode < 200 || response.statusCode >= 300) {
 				const downloadError = new DownloadError(
-					`HTTP ${response.status}: Failed to download ${fileName}`,
+					`HTTP ${response.statusCode}: Failed to download ${fileName}`,
 					url,
-					response.status,
+					response.statusCode,
 					ErrorCodes.HTTP_ERROR
 				);
 				this.emit('error', downloadError);
@@ -118,57 +262,28 @@ export default class Downloader extends EventEmitter {
 			throw wrappedError;
 		}
 
-		const contentLength = response.headers.get('content-length');
-		const totalSize = contentLength ? parseInt(contentLength, 10) : 0;
+		const contentLength = response.headers['content-length'];
+		const totalSize = contentLength ? parseInt(contentLength as string, 10) : 0;
 
-		let downloaded = 0;
+		this.lastProgressEmit = 0;
+		this.lastProgressPercent = -1;
 
-		return new Promise<void>((resolve, reject) => {
-			const body = fromAnyReadable(response.body as any);
-
-			body.on('data', (chunk: Buffer) => {
-				downloaded += chunk.length;
-				this.emit('progress', downloaded, totalSize);
-				try {
-					writer.write(chunk);
-				} catch (err: any) {
-					const fsError = new FileSystemError(
-						`Failed to write to file: ${err.message}`,
-						`${dirPath}/${fileName}`,
-						'write',
-						false,
-						ErrorCodes.DISK_FULL
-					);
-					writer.destroy();
-					this.emit('error', fsError);
-					reject(fsError);
-				}
-			});
-
-			body.on('end', () => {
-				writer.end();
-				resolve();
-			});
-
-			body.on('error', (err: Error) => {
-				writer.destroy();
-				const wrappedError = wrapError(err, { url, fileName, downloaded, totalSize });
-				this.emit('error', wrappedError);
-				reject(wrappedError);
-			});
-
-			writer.on('error', (err: Error) => {
-				writer.destroy();
-				const fsError = new FileSystemError(
-					`File write error: ${err.message}`,
-					`${dirPath}/${fileName}`,
-					'write',
-					false
-				);
-				this.emit('error', fsError);
-				reject(fsError);
-			});
-		});
+		try {
+			const progressTransform = this.createProgressTransform(
+				(downloaded, size) => this.emit('progress', downloaded, size),
+				totalSize
+			);
+			
+			// Use pipeline for reliable stream handling with backpressure.
+			// response.body is already a Node Readable stream (from http.get),
+			// so no web stream conversion is needed.
+			await pipeline(response.body, progressTransform, writer);
+		} catch (err: any) {
+			writer.destroy();
+			const wrappedError = wrapError(err, { url, fileName });
+			this.emit('error', wrappedError);
+			throw wrappedError;
+		}
 	}
 
 	/**
@@ -211,6 +326,10 @@ export default class Downloader extends EventEmitter {
 		let consecutiveFailures = 0;
 		const adaptInterval = 1000; // Adapt every second
 		let lastAdaptTime = Date.now();
+
+		// Reset progress throttle state
+		this.lastProgressEmit = 0;
+		this.lastProgressPercent = -1;
 
 		// Handle abort signal
 		if (abortSignal) {
@@ -281,7 +400,7 @@ export default class Downloader extends EventEmitter {
 			
 			try {
 				if (!fs.existsSync(file.folder)) {
-					fs.mkdirSync(file.folder, { recursive: true, mode: 0o777 });
+					fs.mkdirSync(file.folder, { recursive: true, mode: 0o755 });
 				}
 			} catch (err: any) {
 				const fsError = new FileSystemError(
@@ -298,7 +417,7 @@ export default class Downloader extends EventEmitter {
 				return;
 			}
 
-			const writer = fs.createWriteStream(file.path, { flags: 'w', mode: 0o777 });
+			const writer = fs.createWriteStream(file.path, { flags: 'w', mode: 0o755 });
 			const controller = new AbortController();
 			const timeoutId = setTimeout(() => {
 				controller.abort();
@@ -317,57 +436,37 @@ export default class Downloader extends EventEmitter {
 					throw abortError;
 				}
 				
-				const response = await fetchWithRetry(file.url, { signal: controller.signal }, 3, 2000);
+				const response = await fetchWithRetry(file.url, 3, 2000, timeout, controller.signal);
 				clearTimeout(timeoutId);
 
-				if (!response.ok) {
+				if (response.statusCode < 200 || response.statusCode >= 300) {
 					const downloadError = new DownloadError(
-						`HTTP ${response.status}: Failed to download from ${file.url}`,
+						`HTTP ${response.statusCode}: Failed to download from ${file.url}`,
 						file.url,
-						response.status,
+						response.statusCode,
 						ErrorCodes.HTTP_ERROR
 					);
 					throw downloadError;
 				}
 
-				const stream = fromAnyReadable(response.body as any);
+				// response.body is already a Node Readable stream from http.get
+				// No need for fromAnyReadable conversion!
+				
+				// Create a progress transform that updates the shared downloaded counter
+				const progressTransform = this.createProgressTransform(
+					(dl, _size) => {
+						downloaded = dl;
+					},
+					size
+				);
 
-				stream.on('data', (chunk: Buffer) => {
-					if (aborted) return;
-					downloaded += chunk.length;
-					this.emit('progress', downloaded, size, file.type);
-					try {
-						writer.write(chunk);
-					} catch (err: any) {
-						const fsError = new FileSystemError(
-								`Failed to write chunk: ${err.message}`,
-								file.path,
-								'write',
-								false
-							);
-							errors.push(fsError);
-							emitErrorWithRateLimit(fsError);
-					}
-				});
-
-				stream.on('end', () => {
-					writer.end();
-					completed++;
-					consecutiveSuccesses++;
-					consecutiveFailures = 0;
-					downloadNext();
-				});
-
-				stream.on('error', (err) => {
-					writer.destroy();
-					const wrappedError = wrapError(err, { url: file.url, path: file.path });
-					errors.push(wrappedError);
-					emitErrorWithRateLimit(wrappedError);
-					completed++;
-					consecutiveFailures++;
-					consecutiveSuccesses = 0;
-					downloadNext();
-				});
+				// Use pipeline for reliable stream handling with backpressure
+				await pipeline(response.body, progressTransform, writer);
+				
+				completed++;
+				consecutiveSuccesses++;
+				consecutiveFailures = 0;
+				downloadNext();
 
 			} catch (e: any) {
 				writer.destroy();
@@ -381,7 +480,7 @@ export default class Downloader extends EventEmitter {
 				}
 				
 				// Add more context for fetch failures
-				if (error.message.includes('fetch failed')) {
+				if (error.message.includes('fetch failed') || error.message.includes('ECONNREFUSED') || error.message.includes('ETIMEDOUT')) {
 					const enhancedError = new DownloadError(
 						`Failed to download ${file.url}: ${error.message}. This may be due to network issues or server problems.`,
 						file.url,
@@ -458,30 +557,33 @@ export default class Downloader extends EventEmitter {
 		url: string,
 		timeout: number = 10000
 	): Promise<{ size: number; status: number } | false> {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), timeout);
+		return new Promise((resolve) => {
+			const parsedUrl = new URL(url);
+			const isHttps = parsedUrl.protocol === 'https:';
+			const agent = isHttps ? httpsAgent : httpAgent;
+			const lib = isHttps ? https : http;
 
-		try {
-			const res = await fetch(url, {
-				method: 'HEAD',
-				signal: controller.signal
+			const req = lib.request(url, { method: 'HEAD', agent }, (res) => {
+				if (res.statusCode === 200) {
+					const contentLength = res.headers['content-length'];
+					const size = contentLength ? parseInt(contentLength as string, 10) : 0;
+					res.resume();
+					resolve({ size, status: 200 });
+				} else {
+					res.resume();
+					resolve(false);
+				}
 			});
 
-			clearTimeout(timeoutId);
+			req.on('error', () => resolve(false));
+			req.setTimeout(timeout, () => {
+				req.destroy();
+				resolve(false);
+			});
 
-			if (res.status === 200) {
-				const contentLength = res.headers.get('content-length');
-				const size = contentLength ? parseInt(contentLength, 10) : 0;
-				return { size, status: 200 };
-			}
-			return false;
-		} catch (e: any) {
-			clearTimeout(timeoutId);
-			return false;
-		}
+			req.end();
+		});
 	}
-
-
 
 	/**
 	 * Tries each mirror in turn, constructing an URL (mirror + baseURL). If a valid

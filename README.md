@@ -15,10 +15,11 @@ WinterCore MC eliminates the tedious work of building Minecraft launchers from s
 - 🔐 **Authentication ready** - Accepts any auth object (Microsoft, Mojang, or custom servers)
 - 🔧 **Universal mod loader support** - Forge, NeoForge, Fabric, Quilt, and Legacy Fabric
 - 📦 **Intelligent asset management** - Automatic download, verification, and caching
-- ⚡ **High-performance downloads** - Parallel downloading with progress tracking and retry logic
+- ⚡ **High-performance downloads** - Parallel downloading with connection pooling (keep-alive), backpressure-aware stream pipelines, and adaptive concurrency control
 - 🎯 **Smart Java detection** - Automatic JVM discovery and version management
-- 📊 **Real-time events** - Progress, speed, extraction, and error events
-- 🛡️ **Robust file handling** - SHA-1 verification, resume support, and error recovery
+- 📊 **Real-time events** - Throttled progress, speed, extraction, and error events (max 10/sec to prevent event loop starvation)
+- 🛡️ **Robust file handling** - Parallel SHA-1 verification, resume support, and error recovery
+- 🔗 **Connection pooling** - Global HTTP/HTTPS agents with keep-alive (50 max sockets) to eliminate undici timeout issues with high concurrency
 - 🖥️ **Cross-platform ready** - Windows, macOS, and Linux compatibility
 - 🎮 **Instance management** - Support for multiple game profiles and configurations
 - 🔍 **Server status ping** - Query Minecraft server status directly
@@ -28,6 +29,28 @@ WinterCore MC eliminates the tedious work of building Minecraft launchers from s
 ```bash
 npm install wintercore-mc
 ```
+
+### Local Development
+
+To test changes to this library in your launcher project before publishing:
+
+**Option 1: `npm link` (best for active development)**
+```bash
+# In this library:
+cd wintercore-mc
+npm link
+
+# In your launcher project:
+cd my-launcher
+npm link wintercore-mc
+```
+Changes are instantly available after rebuilding — just run `npm run build` here and restart your launcher.
+
+**Option 2: `file:` protocol in package.json**
+```json
+"wintercore-mc": "file:../path/to/wintercore-mc"
+```
+Then run `npm install` in your launcher project. Re-run `npm install` after library changes.
 
 ## 🚀 Quick Start
 
@@ -493,6 +516,16 @@ npm run dev
 npm run build
 ```
 
+### Performance Architecture (v1.1.0+)
+
+| Component | Optimization | Benefit |
+|-----------|-------------|---------|
+| **Connection Pooling** | Global `http.Agent`/`https.Agent` with `keepAlive: true`, `maxSockets: 50` | Eliminates undici connection exhaustion timeouts with 20+ concurrent downloads |
+| **Progress Throttling** | Max 10 progress events/sec (100ms or ≥1% change) at Downloader + Launch levels | Prevents IPC flooding and event loop starvation — cancel buttons stay responsive |
+| **Stream Pipeline** | `stream/promises.pipeline()` + `Transform` for progress tracking | Proper backpressure, automatic error propagation, no memory spikes |
+| **Parallel Hashing** | `Promise.all()` for SHA-1 verification in `checkBundle()` | Dramatically faster file verification on first launch |
+| **Native Web Streams** | `Readable.fromWeb()` instead of manual pump | Efficient, backpressure-aware web-to-Node stream conversion |
+
 ## 📝 Requirements
 
 - Node.js >= 22.13.0
@@ -501,6 +534,14 @@ npm run build
 ## 📄 License
 
 MIT License 
+
+## 📋 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and changes.
+
+## 🐛 Known Issues
+
+See [Bugs.md](Bugs.md) for known bugs and their status.
 
 ## 🔗 Links
 

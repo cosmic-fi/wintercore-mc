@@ -45,6 +45,7 @@ export default class MinecraftBundle {
 	 */
 	public async checkBundle(bundle: BundleItem[]): Promise<BundleItem[]> {
 		const toDownload: BundleItem[] = [];
+		const hashChecks: Promise<void>[] = [];
 
 		for (const file of bundle) {
 			if (!file.path) continue;
@@ -76,18 +77,26 @@ export default class MinecraftBundle {
 					continue;
 				}
 
-				// If the file has a hash and doesn't match, mark it for download
+				// If the file has a hash and doesn't match, mark it for download.
+				// Run hash checks in parallel for performance - sequential hashing
+				// of hundreds of files is a major bottleneck on first launch.
 				if (file.sha1) {
-					const localHash = await getFileHash(file.path);
-					if (localHash !== file.sha1) {
-						toDownload.push(file);
-					}
+					hashChecks.push(
+						getFileHash(file.path).then(localHash => {
+							if (localHash !== file.sha1) {
+								toDownload.push(file);
+							}
+						})
+					);
 				}
 			} else {
 				// The file doesn't exist at all, mark it for download
 				toDownload.push(file);
 			}
 		}
+
+		// Wait for all parallel hash checks to complete
+		await Promise.all(hashChecks);
 
 		return toDownload;
 	}
