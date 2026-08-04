@@ -543,6 +543,67 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and changes.
 
 See [Bugs.md](Bugs.md) for known bugs and their status.
 
+## 🚢 Release Process
+
+This project uses an automated release workflow that publishes to npm when tags are pushed.
+
+### Release Workflow
+
+1. **Commit and push your changes**
+   ```bash
+   git add .
+   git commit -m "feat: your changes"
+   git push origin main
+   ```
+
+2. **Run the release script**
+   ```bash
+   # Bump patch version (1.1.2 -> 1.1.3)
+   ./release.sh patch
+   
+   # Bump minor version (1.1.2 -> 1.2.0)
+   ./release.sh minor
+   
+   # Bump major version (1.1.2 -> 2.0.0)
+   ./release.sh major
+   
+   # Set specific version (1.1.2 -> 1.1.5)
+   ./release.sh patch 1.1.5
+   ```
+
+3. **Push the tag to trigger GitHub Actions**
+   ```bash
+   git push origin main --tags
+   ```
+
+4. **GitHub Actions will automatically:**
+   - Verify the tag version matches package.json
+   - Install dependencies
+   - Build the project
+   - Publish to npm with provenance
+
+### Release Script Features
+
+- **Automatic version bumping** using npm version
+- **Build verification** before committing
+- **Tag creation** with proper version format
+- **Safety checks** for uncommitted changes
+- **Confirmation prompts** at each step
+- **Automatic rollback** on build failure
+
+### Version Bump Types
+
+- **patch**: Bug fixes and minor changes (1.1.2 -> 1.1.3)
+- **minor**: New features, backwards compatible (1.1.2 -> 1.2.0)
+- **major**: Breaking changes (1.1.2 -> 2.0.0)
+
+### Manual Version Setting
+
+You can also set a specific version:
+```bash
+./release.sh patch 1.1.5  # Sets version to 1.1.5
+```
+
 ## 🔗 Links
 
 - [GitHub Repository](https://github.com/cosmic-fi/wintercore-mc)
