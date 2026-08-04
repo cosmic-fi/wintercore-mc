@@ -1,6 +1,6 @@
 /**
  * @author Luuxis
- * Luuxis License v1.0 (voir fichier LICENSE pour les détails en FR/EN)
+ * Luuxis License v1.0 (see LICENSE file for details in FR/EN)
  */
 
 import fs from 'fs';

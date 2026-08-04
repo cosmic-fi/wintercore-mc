@@ -38,7 +38,7 @@ export default class Unzipper {
             let cdCursor = cdOffset;
 
             while (cdCursor < cdEnd) {
-                if (cdCursor + 46 > fileBuffer.length) break; // sécurité
+                if (cdCursor + 46 > fileBuffer.length) break; // safety
 
                 if (fileBuffer.readUInt32LE(cdCursor) !== 0x02014b50) break;
 
@@ -57,7 +57,7 @@ export default class Unzipper {
                 );
 
                 const headerOffset = relativeOffset;
-                // Sécurité sur l'offset du header
+                // Safety check on the header offset
                 if (headerOffset + 30 > fileBuffer.length) {
                     cdCursor += 46 + fileNameLength + extraFieldLength + fileCommentLength;
                     continue;
@@ -72,7 +72,7 @@ export default class Unzipper {
                 const dataStart = headerOffset + 30 + lfFileNameLength + lfExtraFieldLength;
                 const dataEnd = dataStart + compressedSize;
 
-                // Sécurité: ne pas dépasser la taille du buffer
+                // Safety: do not exceed the buffer size
                 if (dataEnd > fileBuffer.length) {
                     cdCursor += 46 + fileNameLength + extraFieldLength + fileCommentLength;
                     continue;

@@ -1,6 +1,6 @@
 /**
  * @author Luuxis
- * Luuxis License v1.0 (voir fichier LICENSE pour les détails en FR/EN)
+ * Luuxis License v1.0 (see LICENSE file for details in FR/EN)
  */
 
 import fs from 'fs';
@@ -342,7 +342,7 @@ export default class NeoForgeMC extends EventEmitter {
 				}
 
 				if (!finalURL) {
-					return { error: `Impossible to download ${libInfo.name}` };
+					return { error: `Unable to download ${libInfo.name}` };
 				}
 
 				pendingFiles.push({
@@ -377,16 +377,13 @@ export default class NeoForgeMC extends EventEmitter {
 	 * @param oldAPI  Whether we are dealing with the old or new API (passed to the patcher).
 	 * @returns       True on success or if no patch was needed.
 	 */
-	public async patchneoForge(profile: NeoForgeProfile, oldAPI: boolean): Promise<boolean> {
+	public async patchneoForge(profile: NeoForgeProfile, oldAPI: boolean): Promise<boolean | { error: any }> {
 		if (profile?.processors?.length) {
 			const patcher = new NeoForgePatcher(this.options);
 
 			// Relay events
 			patcher.on('patch', (data: string) => {
 				this.emit('patch', data);
-			});
-			patcher.on('error', (error: string) => {
-				this.emit('error', error);
 			});
 
 			// If not already patched, run the patcher
@@ -397,7 +394,11 @@ export default class NeoForgeMC extends EventEmitter {
 					minecraftJson: this.options.loader.config.minecraftJson
 				};
 
-				await patcher.patcher(profile, config, oldAPI);
+				try {
+					await patcher.patcher(profile, config, oldAPI);
+				} catch (error: any) {
+					return { error: error.message || 'NeoForge patcher failed' };
+				}
 			}
 		}
 		return true;

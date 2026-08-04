@@ -1,6 +1,6 @@
 /**
  * @author Luuxis
- * Luuxis License v1.0 (voir fichier LICENSE pour les détails en FR/EN)
+ * Luuxis License v1.0 (see LICENSE file for details in FR/EN)
  */
 
 
@@ -431,13 +431,12 @@ export default class ForgeMC extends EventEmitter {
 	 * @param profile The Forge profile containing processor information
 	 * @returns True if successful or if no patching was required
 	 */
-	public async patchForge(profile: ForgeProfile): Promise<boolean> {
+	public async patchForge(profile: ForgeProfile): Promise<boolean | { error: any }> {
 		if (profile?.processors?.length) {
 			const patcher = new ForgePatcher(this.options);
 
 			// Forward patcher events
 			patcher.on('patch', (data: string) => this.emit('patch', data));
-			patcher.on('error', (data: string) => this.emit('error', data));
 
 			// If the patch is not valid yet, run the patch process
 			if (!patcher.check(profile)) {
@@ -446,7 +445,11 @@ export default class ForgeMC extends EventEmitter {
 					minecraft: this.options.loader.config.minecraftJar,
 					minecraftJson: this.options.loader.config.minecraftJson
 				};
-				await patcher.patcher(profile, config);
+				try {
+					await patcher.patcher(profile, config);
+				} catch (error: any) {
+					return { error: error.message || 'Forge patcher failed' };
+				}
 			}
 		}
 		return true;

@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] — 2026-08-04
+
+### Bug Fixes
+
+- **Forge/NeoForge patcher unhandled error** — Fixed "Unhandled error (Le patcher Forge s'est terminé avec le code 1)" crash. The Java patcher process was emitting `error` events with no listeners, causing Node.js to throw an unhandled exception. Fixed by replacing `emit('error')` with Promise rejection in `patcher.ts`, wrapping patcher calls in try/catch in `forge.ts` and `neoForge.ts`, and adding error event forwarding in `Minecraft-Loader/index.ts`.
+
+- **Error handling across all loaders** — Added missing error event forwarding and try/catch blocks for Fabric, LegacyFabric, and Quilt loaders to prevent unhandled errors during library downloads.
+
+### Improvements
+
+- **Complete error handling chain** — All loader errors now flow through a consistent chain: caught locally → returned as error objects → emitted as events → caught by promise rejection → displayed properly to user. This eliminates JavaScript error dialogs completely.
+
+- **French text translation** — Translated all French comments, error messages, and license headers to English across the entire codebase for better maintainability.
+
+### Files Changed
+
+- `src/Minecraft-Loader/patcher.ts` — Replaced `emit('error')` with `throw`/`reject` for proper async error propagation
+- `src/Minecraft-Loader/loader/forge/forge.ts` — Added try/catch for patcher errors, returns `{ error: ... }`
+- `src/Minecraft-Loader/loader/neoForge/neoForge.ts` — Same fix as Forge
+- `src/Minecraft-Loader/index.ts` — Added error event forwarding for all loaders (Forge, NeoForge, Fabric, LegacyFabric, Quilt)
+- `src/utils/unzipper.ts` — Translated French safety comments to English
+- `src/Launch.ts` — Cleaned up informal comments
+- All loader files — Translated license headers from French to English
+
+---
+
 ## [1.1.0] — 2026-08-03
 
 ### Performance

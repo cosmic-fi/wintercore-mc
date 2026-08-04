@@ -144,6 +144,9 @@ export default class Loader extends EventEmitter {
 		forge.on('patch', (patch: any) => {
 			this.emit('patch', patch);
 		});
+		forge.on('error', (error: any) => {
+			this.emit('error', error);
+		});
 
 		// 1. Download installer
 		const installer: any = await forge.downloadInstaller(LoaderData);
@@ -199,6 +202,9 @@ export default class Loader extends EventEmitter {
 		neoForge.on('patch', (patch: any) => {
 			this.emit('patch', patch);
 		});
+		neoForge.on('error', (error: any) => {
+			this.emit('error', error);
+		});
 
 		const installer = await neoForge.downloadInstaller(LoaderData);
 		if (installer.error) return installer;
@@ -245,6 +251,9 @@ export default class Loader extends EventEmitter {
 		fabric.on('progress', (progress: number, size: number, element: string) => {
 			this.emit('progress', progress, size, element);
 		});
+		fabric.on('error', (error: any) => {
+			this.emit('error', error);
+		});
 
 		const json = await fabric.downloadJson(LoaderData);
 		if (json.error) return json;
@@ -257,7 +266,11 @@ export default class Loader extends EventEmitter {
 		}
 
 		if ("libraries" in json) {
-			await fabric.downloadLibraries(json);
+			try {
+				await fabric.downloadLibraries(json);
+			} catch (error: any) {
+				return { error: error.message || 'Failed to download Fabric libraries' };
+			}
 		}
 
 		return json;
@@ -279,6 +292,9 @@ export default class Loader extends EventEmitter {
 		legacyFabric.on('progress', (progress: number, size: number, element: string) => {
 			this.emit('progress', progress, size, element);
 		});
+		legacyFabric.on('error', (error: any) => {
+			this.emit('error', error);
+		});
 
 		const json = await legacyFabric.downloadJson(LoaderData);
 		if (json.error) return json;
@@ -290,7 +306,11 @@ export default class Loader extends EventEmitter {
 			fs.cpSync(path.resolve(this.options.loader.config.minecraftJar), path.resolve(destination, `${json.id}.jar`));
 		}
 		if ("libraries" in json) {
-			await legacyFabric.downloadLibraries(json);
+			try {
+				await legacyFabric.downloadLibraries(json);
+			} catch (error: any) {
+				return { error: error.message || 'Failed to download LegacyFabric libraries' };
+			}
 		}
 		return json;
 	}
@@ -311,6 +331,9 @@ export default class Loader extends EventEmitter {
 		quilt.on('progress', (progress: number, size: number, element: string) => {
 			this.emit('progress', progress, size, element);
 		});
+		quilt.on('error', (error: any) => {
+			this.emit('error', error);
+		});
 
 		const json = await quilt.downloadJson(LoaderData);
 		if (json.error) return json;
@@ -322,7 +345,11 @@ export default class Loader extends EventEmitter {
 			fs.cpSync(path.resolve(this.options.loader.config.minecraftJar), path.resolve(destination, `${json.id}.jar`));
 		}
 		if ("libraries" in json) {
-			await quilt.downloadLibraries(json);
+			try {
+				await quilt.downloadLibraries(json);
+			} catch (error: any) {
+				return { error: error.message || 'Failed to download Quilt libraries' };
+			}
 		}
 
 		return json;

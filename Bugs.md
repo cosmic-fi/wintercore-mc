@@ -14,6 +14,13 @@
 
 - [x] **Missing `@types/node` in tsconfig** — TypeScript compiler couldn't find Node.js type definitions. Fixed by adding `"types": ["node"]` to `tsconfig.json`.
 
+## Fixed in v1.1.3
+
+- [x] **Unhandled error from Forge/NeoForge patcher** — When the Java patcher process exited with a non-zero code, `ForgePatcher` emitted an `error` event. The `ForgeMC`/`NeoForgeMC` classes forwarded this via `this.emit('error', ...)`, but the `Loader` class in `Minecraft-Loader/index.ts` never registered an `error` listener on the Forge/NeoForge instances. Emitting `error` on an EventEmitter with no listeners causes Node.js to throw an unhandled exception. Fixed by:
+  - `patcher.ts`: Replacing `emit('error')` with Promise rejection (`reject(new Error(...))`) for non-zero exit codes and spawn failures, and `throw` for missing main class.
+  - `forge.ts` / `neoForge.ts`: Wrapping `patcher.patcher()` in try/catch and returning `{ error: ... }` instead of emitting unhandled `error` events.
+  - `index.ts`: Adding `error` event forwarding for both `forge` and `neoForge` instances so any remaining errors are properly handled.
+
 ## Known Issues
 
 - [ ] **Forge installer downloads can be slow** — The Forge installer download flow doesn't use the same connection pooling as the main Downloader. This is a minor issue since Forge installers are typically a single large file.

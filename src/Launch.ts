@@ -159,7 +159,7 @@ export type LaunchOPTS = {
 	 */
 	loader: loader,
 	/**
-	 * MCPathcer directory. (idk actually luuxis please verify this)
+	 * MCPatcher directory.
 	 * 
 	 * If `instance` if set, relative to it.
 	 * If `instance` is `undefined`, relative to `path`.
@@ -170,7 +170,7 @@ export type LaunchOPTS = {
 	 */
 	verify: boolean,
 	/**
-	 * Files to ignore from instance. (idk actually luuxis please verify this)
+	 * Files to ignore from instance.
 	 */
 	ignored: string[],
 	/**

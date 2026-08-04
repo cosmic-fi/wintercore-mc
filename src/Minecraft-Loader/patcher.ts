@@ -64,11 +64,10 @@ export default class ForgePatcher extends EventEmitter {
 
 			const mainClass = await this.readJarManifest(jarPath);
 			if (!mainClass) {
-				this.emit('error', `Impossible de déterminer la classe principale dans le JAR: ${jarPath}`);
-				continue;
+				throw new Error(`Unable to determine the main class in the JAR: ${jarPath}`);
 			}
 
-			await new Promise<void>((resolve) => {
+			await new Promise<void>((resolve, reject) => {
 				const spawned = spawn(
 					`"${path.resolve(config.java)}"`,
 					[
@@ -88,11 +87,16 @@ export default class ForgePatcher extends EventEmitter {
 					this.emit('patch', data.toString('utf-8'));
 				});
 
+				spawned.on('error', (err) => {
+					reject(err);
+				});
+
 				spawned.on('close', code => {
 					if (code !== 0) {
-						this.emit('error', `Le patcher Forge s'est terminé avec le code ${code}`);
+						reject(new Error(`The Forge patcher exited with code ${code}`));
+					} else {
+						resolve();
 					}
-					resolve();
 				});
 			});
 		}
