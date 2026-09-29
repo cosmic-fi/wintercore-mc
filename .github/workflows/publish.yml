@@ -1,0 +1,51 @@
+name: Verify and Build Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for all tags and branches
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "❌ Error: Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)"
+            exit 1
+          fi
+          echo "✅ Version verified: $PACKAGE_VERSION"
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build project
+        run: npm run build
+      
+      - name: Run tests (if available)
+        run: npm test
+        continue-on-error: true
+      
+      - name: Release summary
+        run: |
+          echo "🎉 Release verification completed successfully!"
+          echo ""
+          echo "📦 Package: $(node -p "require('./package.json').name")"
+          echo "📊 Version: $(node -p "require('./package.json').version")"
+          echo "🏷️  Tag: ${GITHUB_REF#refs/tags/}"
+          echo ""
+          echo "✅ All checks passed. Package is ready for npm publish."

@@ -1,0 +1,33 @@
+# Known Bugs & Fixes — wintercore-mc
+
+## Fixed in v1.1.0
+
+- [x] **Frequent download timeouts with undici's fetch** — undici's default connection pool (10 sockets per origin) was exhausted when running 20 concurrent downloads, causing connections to queue and time out. Fixed by replacing `fetch()` entirely with native `http.get()`/`https.get()` using global `http.Agent`/`https.Agent` with `keepAlive: true` and `maxSockets: 50` for connection pooling and reuse. This also eliminates the web stream conversion overhead since `http.get` returns a native Node.js Readable stream directly.
+
+- [x] **Progress event flooding** — The `Downloader` emitted a `progress` event on every single data chunk. With 20 concurrent downloads this flooded IPC channels and starved the event loop, causing the launcher's cancel button to not fire until the window was minimized or the page changed. Fixed by throttling progress events to max 10/sec (every 100ms or ≥1% change) at both the `Downloader` and `Launch` levels.
+
+- [x] **Unreliable stream handling** — Manual `stream.on('data')` / `stream.on('end')` event handling in the Downloader didn't properly handle backpressure, leading to memory spikes and potential data loss on large downloads. Fixed by replacing manual stream handling with `stream/promises.pipeline()` + a `Transform` stream for progress tracking.
+
+- [x] **Inefficient web stream conversion** — `fromAnyReadable` in `Index.ts` used a manual pump approach with `getReader()` + recursive Promise chains, creating a new Promise per chunk and not handling backpressure. Fixed by using `Readable.fromWeb()` directly (Node 17+ native conversion).
+
+- [x] **Slow sequential hash checking** — `MinecraftBundle.checkBundle()` computed SHA-1 hashes sequentially for every file. On first launch with hundreds of files this was a major bottleneck. Fixed by running hash checks in parallel with `Promise.all()`.
+
+- [x] **Missing `@types/node` in tsconfig** — TypeScript compiler couldn't find Node.js type definitions. Fixed by adding `"types": ["node"]` to `tsconfig.json`.
+
+## Fixed in v1.1.3
+
+- [x] **Unhandled error from Forge/NeoForge patcher** — When the Java patcher process exited with a non-zero code, `ForgePatcher` emitted an `error` event. The `ForgeMC`/`NeoForgeMC` classes forwarded this via `this.emit('error', ...)`, but the `Loader` class in `Minecraft-Loader/index.ts` never registered an `error` listener on the Forge/NeoForge instances. Emitting `error` on an EventEmitter with no listeners causes Node.js to throw an unhandled exception. Fixed by:
+  - `patcher.ts`: Replacing `emit('error')` with Promise rejection (`reject(new Error(...))`) for non-zero exit codes and spawn failures, and `throw` for missing main class.
+  - `forge.ts` / `neoForge.ts`: Wrapping `patcher.patcher()` in try/catch and returning `{ error: ... }` instead of emitting unhandled `error` events.
+  - `index.ts`: Adding `error` event forwarding for both `forge` and `neoForge` instances so any remaining errors are properly handled.
+
+## Fixed in v1.1.6
+
+- [x] **Active download requests were not consistently stopped on cancellation** — Propagated the abort signal to active HTTP requests so cancelling `Downloader.downloadFileMultiple()` closes the in-flight response and rejects promptly. User cancellation does not emit a per-file download failure. The higher-level `GameDownloader` returns its documented `{ error: string }` result. Covered by `tests/download-cancel.test.mjs`.
+
+- [x] **Download and process lifecycle handling were coupled** — Added separate `GameDownloader` and `GameLauncher` wrappers. The downloader removes its forwarded event listeners when a download settles; the launcher removes process listeners after close/cancel or a launch failure.
+
+## Known Issues
+
+- [ ] **Forge installer downloads can be slow** — The Forge installer download flow doesn't use the same connection pooling as the main Downloader. This is a minor issue since Forge installers are typically a single large file.
+- [ ] **`getFileFromArchive` loads entire archive into memory** — For very large jar/zip files, the `Unzipper` class loads all entries into memory at once. This could be optimized with streaming extraction for large archives.
